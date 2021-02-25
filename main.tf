@@ -35,7 +35,7 @@ resource "aws_vpc" "vpc" {
   enable_classiclink_dns_support = true
   assign_generated_ipv6_cidr_block = false
   tags = {
-    Name = format("%s-%s",var.vpc_name,"vpc_${timestamp()}")
+    Name = format("%s-%s",var.vpc_name,"vpc_${terraform.workspace}")
   }
 }
 
@@ -46,7 +46,7 @@ resource "aws_subnet" "subnet1" {
   availability_zone       = format("%s%s",var.region,"a")
   map_public_ip_on_launch = true
   tags = {
-    Name = format("%s-%s",var.vpc_name,"subnet1_${timestamp()}")
+    Name = format("%s-%s",var.vpc_name,"subnet1_${terraform.workspace}")
   }
 }
 
@@ -55,7 +55,7 @@ resource "aws_subnet" "subnet2" {
   vpc_id            = aws_vpc.vpc.id
   availability_zone = format("%s%s",var.region,"b")
   tags = {
-    Name = format("%s-%s",var.vpc_name,"subnet2_${timestamp()}")
+    Name = format("%s-%s",var.vpc_name,"subnet2_${terraform.workspace}")
   }
 }
 
@@ -64,7 +64,7 @@ resource "aws_subnet" "subnet3" {
   vpc_id            = aws_vpc.vpc.id
   availability_zone = format("%s%s",var.region,"c")
   tags = {
-    Name = format("%s-%s",var.vpc_name,"subnet3_${timestamp()}")
+    Name = format("%s-%s",var.vpc_name,"subnet3_${terraform.workspace}")
   }
 }
 
@@ -72,7 +72,7 @@ resource "aws_subnet" "subnet3" {
 resource "aws_internet_gateway" "internet-gateway" {
   vpc_id = aws_vpc.vpc.id
   tags = {
-    Name = format("%s-%s",var.vpc_name,"ig_${timestamp()}")
+    Name = format("%s-%s",var.vpc_name,"ig_${terraform.workspace}")
   }
 }
 
@@ -84,7 +84,7 @@ resource "aws_route_table" "route-table" {
     gateway_id = aws_internet_gateway.internet-gateway.id
   }
   tags = {
-    Name = format("%s-%s",var.vpc_name,"rt__${timestamp()}")
+    Name = format("%s-%s",var.vpc_name,"rt_${terraform.workspace}")
   }
 }
 

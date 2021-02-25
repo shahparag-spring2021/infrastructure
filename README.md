@@ -1,9 +1,9 @@
 # Terraform
 
-    Install Terraform
-    Install AWS CLI and create AWS CLI dev and prod profiles
+### Install Terraform
+### Install AWS CLI and create AWS CLI dev and prod profiles
 
-    Create vars.tfvars file with below variables - 
+### Create vars.tfvars file with below variables - 
     ```
     region = "us-east-1"
     vpc_name = "csye6225"
@@ -13,13 +13,18 @@
     cidr_block3_subnet = "10.0.3.0/24"
     ```
 
-    Set any profile
-        export AWS_PROFILE=dev
+### Set any profile
+    export AWS_PROFILE=dev
 
-    Terraform commands to run - 	
-        terraform init
-        terraform plan -var-file="vars.tfvars"
-        terraform apply -var-file="vars.tfvars"
+### Terraform commands to run - 	
+    terraform init
+    terraform plan -var-file="vars.tfvars"
+    terraform apply -var-file="vars.tfvars"
 
-    Destroy using - 
-        terraform destroy
+### Destroy using - 
+    terraform destroy
+
+### Create multiple resources using same file - 
+    terraform workspace new dev1
+    terraform workspace select dev1
+    terraform workspace show
