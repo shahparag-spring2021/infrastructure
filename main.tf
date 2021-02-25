@@ -1,45 +1,70 @@
 provider "aws" {
-  region = "us-east-1"
+  region = var.region
+}
+
+# Variables
+variable "region"{
+    type = string
+}
+
+variable "vpc_name"{
+    type = string
+}
+
+variable "cidr_block_vpc" {
+  type = string
+}
+
+variable "cidr_block1_subnet" {
+  type = string
+}
+
+variable "cidr_block2_subnet" {
+  type = string
+}
+
+variable "cidr_block3_subnet" {
+  type = string
 }
 
 # VPC
 resource "aws_vpc" "vpc" {
-  cidr_block           = "10.0.0.0/16"
+  cidr_block           = var.cidr_block_vpc
   enable_dns_hostnames = true
   enable_dns_support   = true
   enable_classiclink_dns_support = true
   assign_generated_ipv6_cidr_block = false
   tags = {
-    Name = "vpc-tf"
+    Name = format("%s-%s",var.vpc_name,"vpc-tf")
   }
 }
 
 # Subnets
 resource "aws_subnet" "subnet1" {
-  cidr_block              = "10.0.1.0/24"
+  cidr_block              = var.cidr_block1_subnet
   vpc_id                  = aws_vpc.vpc.id
-  availability_zone       = "us-east-1a"
+  availability_zone       = format("%s%s",var.region,"a")
   map_public_ip_on_launch = true
   tags = {
-    Name = "subnet1-tf"
+    Name = format("%s-%s",var.vpc_name,"subnet1-tf")
   }
 }
 
 resource "aws_subnet" "subnet2" {
-  cidr_block        = "10.0.2.0/24"
+  cidr_block        = var.cidr_block2_subnet
   vpc_id            = aws_vpc.vpc.id
-  availability_zone = "us-east-1b"
+  availability_zone = format("%s%s",var.region,"b")
   tags = {
-    Name = "subnet2-tf"
+    Name = format("%s-%s",var.vpc_name,"subnet2-tf")
   }
 }
 
 resource "aws_subnet" "subnet3" {
-  cidr_block        = "10.0.3.0/24"
+  cidr_block        = var.cidr_block3_subnet
   vpc_id            = aws_vpc.vpc.id
-  availability_zone = "us-east-1c"
+  availability_zone = format("%s%s",var.region,"c")
   tags = {
-    Name = "subnet3-tf"
+    Name = format("%s-%s",var.vpc_name,"subnet3-tf")
   }
 }
 
@@ -47,7 +72,7 @@ resource "aws_subnet" "subnet3" {
 resource "aws_internet_gateway" "internet-gateway" {
   vpc_id = aws_vpc.vpc.id
   tags = {
-    Name = "internet-gateway-tf"
+    Name = format("%s-%s",var.vpc_name,"ig-tf")
   }
 }
 
@@ -59,7 +84,7 @@ resource "aws_route_table" "route-table" {
     gateway_id = aws_internet_gateway.internet-gateway.id
   }
   tags = {
-    Name = "route-table-tf"
+    Name = format("%s-%s",var.vpc_name,"rt-tf")
   }
 }
 
@@ -78,3 +103,9 @@ resource "aws_route_table_association" "rt-subnet3" {
   route_table_id = aws_route_table.route-table.id
   subnet_id      = aws_subnet.subnet3.id
 }
+
+# resource "aws_route" "route" {
+#     route_table_id = aws_route_table.route-table.id
+#     destination_cidr_block = "0.0.0.0/0"
+#     gateway_id = aws_internet_gateway.internet-gateway.id
+# }
