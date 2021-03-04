@@ -142,14 +142,35 @@ resource "aws_security_group" "webapp_sg" {
   }
 
   ingress {
+    from_port = 5000
+    to_port = 5000
+    protocol = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
     from_port = 22
     to_port = 22
     protocol = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    from_port = 3128
+    to_port = 3128
+    protocol = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   tags = {
-    Name = "webapp_sg"
+    Name = "webapp_sg_${terraform.workspace}"
   }
 }
 
@@ -168,7 +189,7 @@ resource "aws_security_group" "database_sg" {
   }
 
   tags = {
-    Name = "database_sg"
+    Name = "database_sg_${terraform.workspace}"
   }
 }
 
@@ -186,6 +207,10 @@ resource "aws_s3_bucket" "webapp_bucket" {
     }
   }
 
+  lifecycle {
+    prevent_destroy = false
+  }
+
   lifecycle_rule {
     enabled = true
 
@@ -196,7 +221,7 @@ resource "aws_s3_bucket" "webapp_bucket" {
   }
 
   tags = {
-    Name = "webapp_bucket"
+    Name = "webapp_bucket_${terraform.workspace}"
   }
 }
 
@@ -214,7 +239,7 @@ resource "aws_db_subnet_group" "db_subnet_group" {
   subnet_ids = [aws_subnet.subnet1.id, aws_subnet.subnet2.id,aws_subnet.subnet3.id]
 
   tags = {
-    Name = "DB Subnet Group"
+    Name = "db_subnet_group_${terraform.workspace}"
   }
 }
 
@@ -223,10 +248,12 @@ resource "aws_db_instance" "db_instance" {
   allocated_storage = 8
   storage_type = "gp2"
   engine = "postgres"
+  engine_version    = "13.1"
   instance_class = "db.t3.micro"
   name = var.cred["name"]
   username = var.cred["username"]
   password = var.cred["password"]
+  port     = "5432"
   multi_az = false
   publicly_accessible = false
   identifier = var.cred["identifier"]
@@ -236,6 +263,9 @@ resource "aws_db_instance" "db_instance" {
   storage_encrypted = true
   ca_cert_identifier = data.aws_rds_certificate.rds_certificate.id
 #   parameter_group_name = aws_db_parameter_group.db-param-group-performance-schema.name
+  tags = {
+    Name = "db_instance_${terraform.workspace}"
+  }
 }
 
 data "aws_rds_certificate" "rds_certificate" {
@@ -269,11 +299,6 @@ resource "aws_iam_policy" "WebAppS3" {
 EOF
 }
 
-resource "aws_iam_instance_profile" "instance_profile_dev1" {
-  name = "instance_profile_dev1"
-  role = aws_iam_role.ec2_csye6225.name
-}
-
 // EC2 role for S3 bucket without specifying credentials
 resource "aws_iam_role" "ec2_csye6225" {
   name = "ec2_csye6225"
@@ -302,7 +327,54 @@ resource "aws_iam_policy_attachment" "ec2_s3_attachment" {
 }
 
 
+resource "aws_iam_instance_profile" "instance_profile_dev1" {
+  name = "instance_profile_dev1"
+  role = aws_iam_role.ec2_csye6225.name
+}
+
+
 # IAM User
 data "aws_iam_user" "dev_user" {
   user_name = "dev"
+}
+
+# AMI Details
+data "aws_ami" "custom_ami" {
+  owners = ["508886276467"]
+  most_recent = true
+
+}
+
+# EC2 instance
+resource "aws_instance" "ec2_instance" {
+  ami = data.aws_ami.custom_ami.id
+  instance_type = "t2.micro"
+  key_name = var.cred["key_name"]
+  vpc_security_group_ids = [aws_security_group.webapp_sg.id]
+  subnet_id = aws_subnet.subnet1.id
+  iam_instance_profile = aws_iam_instance_profile.instance_profile_dev1.name
+  associate_public_ip_address = true
+  disable_api_termination = false
+
+  user_data = <<-EOF
+                #!/bin/bash
+                sudo touch .env\n
+                sudo echo "export RDS_DB_HOSTNAME=${aws_db_instance.db_instance.address}" >> /etc/environment
+                sudo echo "export RDS_DB_ENDPOINT=${aws_db_instance.db_instance.endpoint}" >> /etc/environment
+                sudo echo "export RDS_DB_NAME=${aws_db_instance.db_instance.name}" >> /etc/environment
+                sudo echo "export RDS_DB_USERNAME=${var.cred["username"]}" >> /etc/environment
+                sudo echo "export RDS_DB_PASSWORD=${var.cred["password"]}" >> /etc/environment
+                sudo echo "export S3_BUCKET_NAME=${aws_s3_bucket.webapp_bucket.bucket}" >> /etc/environment
+  EOF
+
+
+  root_block_device {
+      volume_type = "gp2"
+      volume_size =  20
+      delete_on_termination = true
+  }
+
+  tags = {
+    Name = "ec2_instance_${terraform.workspace}"
+  }
 }
