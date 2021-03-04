@@ -7,6 +7,10 @@ variable "region"{
     type = string
 }
 
+variable "secret_key"{
+    type = string
+}
+
 variable "vpc_name"{
     type = string
 }
@@ -365,6 +369,7 @@ resource "aws_instance" "ec2_instance" {
                 sudo echo "export RDS_DB_USERNAME=${var.cred["username"]}" >> /etc/environment
                 sudo echo "export RDS_DB_PASSWORD=${var.cred["password"]}" >> /etc/environment
                 sudo echo "export S3_BUCKET_NAME=${aws_s3_bucket.webapp_bucket.bucket}" >> /etc/environment
+                sudo echo "export SECRET_KEY=${var.secret_key}" >> /etc/environment
   EOF
 
 
