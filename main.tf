@@ -51,10 +51,6 @@ variable "codedeploy_bucket"{
     type = string
 }
 
-variable "iam_user"{
-    type = string
-}
-
 variable "account_id"{
     type = string
 }
@@ -323,31 +319,31 @@ resource "aws_iam_policy" "WebAppS3" {
 EOF
 }
 
-// EC2 role for S3 bucket without specifying credentials
-resource "aws_iam_role" "ec2_csye6225" {
-  name = "ec2_csye6225"
+# // EC2 role for S3 bucket without specifying credentials
+# resource "aws_iam_role" "ec2_csye6225" {
+#   name = "ec2_csye6225"
 
-  assume_role_policy = <<EOF
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Action": "sts:AssumeRole",
-            "Principal": {
-               "Service": "ec2.amazonaws.com"
-            },
-            "Effect": "Allow",
-            "Sid": ""
-        }
-    ]
-}
-EOF
-}
+#   assume_role_policy = <<EOF
+# {
+#     "Version": "2012-10-17",
+#     "Statement": [
+#         {
+#             "Action": "sts:AssumeRole",
+#             "Principal": {
+#                "Service": "ec2.amazonaws.com"
+#             },
+#             "Effect": "Allow",
+#             "Sid": ""
+#         }
+#     ]
+# }
+# EOF
+# }
 
 // WebappS3 EC2 policy attachment
 resource "aws_iam_policy_attachment" "ec2_s3_attachment" {
   name       = "ec2_s3_attachment"
-  roles      = [aws_iam_role.ec2_csye6225.name]
+  roles      = [aws_iam_role.CodeDeployEC2ServiceRole.name]
   policy_arn = aws_iam_policy.WebAppS3.arn
 }
 
@@ -597,6 +593,6 @@ resource "aws_instance" "ec2_instance" {
   }
 
   tags = {
-    Name = "ec2_instance_${terraform.workspace}"
+    Name = "ec2_instance"
   }
 }
