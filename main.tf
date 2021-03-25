@@ -55,6 +55,14 @@ variable "account_id"{
     type = string
 }
 
+variable "domain"{
+    type = string
+}
+
+variable "zone_id"{
+    type = string
+}
+
 
 # VPC
 resource "aws_vpc" "vpc" {
@@ -347,7 +355,7 @@ resource "aws_iam_policy_attachment" "ec2_s3_attachment" {
   policy_arn = aws_iam_policy.WebAppS3.arn
 }
 
-# IAM User
+# IAM User for CI/CD
 data "aws_iam_user" "ghactions_user" {
   user_name = "ghactions"
 }
@@ -450,64 +458,64 @@ resource "aws_iam_policy" "GH-Upload-To-S3" {
 EOF
 }
 
-//attachment of GH-Upload-To-S3 IAM Policy to ghactions_user
-resource "aws_iam_user_policy_attachment" "ghactions_ec2_ami" {
-  user       = data.aws_iam_user.ghactions_user.user_name
-  policy_arn = aws_iam_policy.gh-ec2-ami.arn
-}
+# // EC2 AMI Policy attachment to IAM User
+# resource "aws_iam_user_policy_attachment" "ghactions_ec2_ami" {
+#   user       = data.aws_iam_user.ghactions_user.user_name
+#   policy_arn = aws_iam_policy.gh-ec2-ami.arn
+# }
 
-# GH-Upload-To-S3 IAM Policy
-resource "aws_iam_policy" "gh-ec2-ami" {
-  name        = "gh-ec2-ami"
-  path        = "/"
-  description = "gh-ec2-ami policy"
-  policy = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ec2:AttachVolume",
-        "ec2:AuthorizeSecurityGroupIngress",
-        "ec2:CopyImage",
-        "ec2:CreateImage",
-        "ec2:CreateKeypair",
-        "ec2:CreateSecurityGroup",
-        "ec2:CreateSnapshot",
-        "ec2:CreateTags",
-        "ec2:CreateVolume",
-        "ec2:DeleteKeyPair",
-        "ec2:DeleteSecurityGroup",
-        "ec2:DeleteSnapshot",
-        "ec2:DeleteVolume",
-        "ec2:DeregisterImage",
-        "ec2:DescribeImageAttribute",
-        "ec2:DescribeImages",
-        "ec2:DescribeInstances",
-        "ec2:DescribeInstanceStatus",
-        "ec2:DescribeRegions",
-        "ec2:DescribeSecurityGroups",
-        "ec2:DescribeSnapshots",
-        "ec2:DescribeSubnets",
-        "ec2:DescribeTags",
-        "ec2:DescribeVolumes",
-        "ec2:DetachVolume",
-        "ec2:GetPasswordData",
-        "ec2:ModifyImageAttribute",
-        "ec2:ModifyInstanceAttribute",
-        "ec2:ModifySnapshotAttribute",
-        "ec2:RegisterImage",
-        "ec2:RunInstances",
-        "ec2:StopInstances",
-        "ec2:TerminateInstances"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-EOF
-}
+# # GH EC2 AMI Access Policy
+# resource "aws_iam_policy" "gh-ec2-ami" {
+#   name        = "gh-ec2-ami"
+#   path        = "/"
+#   description = "gh-ec2-ami policy"
+#   policy = <<EOF
+# {
+#   "Version": "2012-10-17",
+#   "Statement": [
+#     {
+#       "Effect": "Allow",
+#       "Action": [
+#         "ec2:AttachVolume",
+#         "ec2:AuthorizeSecurityGroupIngress",
+#         "ec2:CopyImage",
+#         "ec2:CreateImage",
+#         "ec2:CreateKeypair",
+#         "ec2:CreateSecurityGroup",
+#         "ec2:CreateSnapshot",
+#         "ec2:CreateTags",
+#         "ec2:CreateVolume",
+#         "ec2:DeleteKeyPair",
+#         "ec2:DeleteSecurityGroup",
+#         "ec2:DeleteSnapshot",
+#         "ec2:DeleteVolume",
+#         "ec2:DeregisterImage",
+#         "ec2:DescribeImageAttribute",
+#         "ec2:DescribeImages",
+#         "ec2:DescribeInstances",
+#         "ec2:DescribeInstanceStatus",
+#         "ec2:DescribeRegions",
+#         "ec2:DescribeSecurityGroups",
+#         "ec2:DescribeSnapshots",
+#         "ec2:DescribeSubnets",
+#         "ec2:DescribeTags",
+#         "ec2:DescribeVolumes",
+#         "ec2:DetachVolume",
+#         "ec2:GetPasswordData",
+#         "ec2:ModifyImageAttribute",
+#         "ec2:ModifyInstanceAttribute",
+#         "ec2:ModifySnapshotAttribute",
+#         "ec2:RegisterImage",
+#         "ec2:RunInstances",
+#         "ec2:StopInstances",
+#         "ec2:TerminateInstances"
+#       ],
+#       "Resource": "*"
+#     }
+#   ]
+# }
+# EOF
+# }
 
 //CodeDeployServiceRole, will be utilizing the codedeploy service
 resource "aws_iam_role" "CodeDeployServiceRole" {
@@ -611,6 +619,27 @@ EOF
 resource "aws_iam_user_policy_attachment" "ghactions_attach_ghcodedeploy_policy" {
   user       = data.aws_iam_user.ghactions_user.user_name
   policy_arn = aws_iam_policy.GH-Code-Deploy.arn
+}
+
+// Route 53 zone
+data "aws_route53_zone" "fetched_zone" {
+  name         = var.domain
+  private_zone = false
+}
+
+# Create a record on Route53
+resource "aws_route53_record" "route53_record" {
+  zone_id  = var.zone_id
+  name     = var.domain
+  type     = "A"
+  ttl      = 60
+  records  = [aws_instance.ec2_instance.public_ip]
+}
+
+# //adding policy of AWSCloudWatchAgentServerPolicy to CodeDeployEC2ServiceRole role
+resource "aws_iam_role_policy_attachment" "CloudWatchAgentServerPolicy" {
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+  role       = aws_iam_role.CodeDeployEC2ServiceRole.name
 }
 
 
