@@ -221,6 +221,45 @@ resource "aws_security_group" "database_sg" {
   }
 }
 
+resource "aws_security_group" "loadbalancer_sg" {
+  name = "loadbalancer_sg"
+  description = "Loadbalancer security group"
+  vpc_id      = aws_vpc.vpc.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 5000
+    to_port     = 5000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "loadbalancer_sg"
+  }
+
+}
+
 # S3 Bucket
 resource "aws_s3_bucket" "webapp_bucket" {
   bucket = var.s3_bucketname
@@ -327,7 +366,7 @@ resource "aws_iam_policy" "WebAppS3" {
 EOF
 }
 
-# // EC2 role for S3 bucket without specifying credentials
+# # EC2 role for S3 bucket without specifying credentials
 # resource "aws_iam_role" "ec2_csye6225" {
 #   name = "ec2_csye6225"
 
@@ -348,7 +387,7 @@ EOF
 # EOF
 # }
 
-// WebappS3 EC2 policy attachment
+# WebappS3 EC2 policy attachment
 resource "aws_iam_policy_attachment" "ec2_s3_attachment" {
   name       = "ec2_s3_attachment"
   roles      = [aws_iam_role.CodeDeployEC2ServiceRole.name]
@@ -368,7 +407,7 @@ resource "aws_iam_instance_profile" "iam_instance_profile" {
   role = aws_iam_role.CodeDeployEC2ServiceRole.name
 }
 
-// CodeDeploy Role
+# CodeDeploy Role
 resource "aws_iam_role" "CodeDeployEC2ServiceRole" {
   name = "CodeDeployEC2ServiceRole"
 
@@ -389,7 +428,7 @@ resource "aws_iam_role" "CodeDeployEC2ServiceRole" {
 EOF
 }
 
-//CodeDeploy-EC2-S3 IAM Policy attachment to CodeDeployEC2ServiceRole role
+# Policy attachment
 resource "aws_iam_policy_attachment" "codedeploy_ec2_s3_policy_attachment" {
   name       = "codedeploy_ec2_s3_attachment"
   roles      = [aws_iam_role.CodeDeployEC2ServiceRole.name]
@@ -424,7 +463,7 @@ resource "aws_iam_policy" "CodeDeploy-EC2-S3" {
 EOF
 }
 
-//attachment of GH-Upload-To-S3 IAM Policy to ghactions_user
+# Policy attachment
 resource "aws_iam_user_policy_attachment" "ghactions_attach_gh_upload_to_s3_policy" {
   user       = data.aws_iam_user.ghactions_user.user_name
   policy_arn = aws_iam_policy.GH-Upload-To-S3.arn
@@ -458,66 +497,7 @@ resource "aws_iam_policy" "GH-Upload-To-S3" {
 EOF
 }
 
-# // EC2 AMI Policy attachment to IAM User
-# resource "aws_iam_user_policy_attachment" "ghactions_ec2_ami" {
-#   user       = data.aws_iam_user.ghactions_user.user_name
-#   policy_arn = aws_iam_policy.gh-ec2-ami.arn
-# }
-
-# # GH EC2 AMI Access Policy
-# resource "aws_iam_policy" "gh-ec2-ami" {
-#   name        = "gh-ec2-ami"
-#   path        = "/"
-#   description = "gh-ec2-ami policy"
-#   policy = <<EOF
-# {
-#   "Version": "2012-10-17",
-#   "Statement": [
-#     {
-#       "Effect": "Allow",
-#       "Action": [
-#         "ec2:AttachVolume",
-#         "ec2:AuthorizeSecurityGroupIngress",
-#         "ec2:CopyImage",
-#         "ec2:CreateImage",
-#         "ec2:CreateKeypair",
-#         "ec2:CreateSecurityGroup",
-#         "ec2:CreateSnapshot",
-#         "ec2:CreateTags",
-#         "ec2:CreateVolume",
-#         "ec2:DeleteKeyPair",
-#         "ec2:DeleteSecurityGroup",
-#         "ec2:DeleteSnapshot",
-#         "ec2:DeleteVolume",
-#         "ec2:DeregisterImage",
-#         "ec2:DescribeImageAttribute",
-#         "ec2:DescribeImages",
-#         "ec2:DescribeInstances",
-#         "ec2:DescribeInstanceStatus",
-#         "ec2:DescribeRegions",
-#         "ec2:DescribeSecurityGroups",
-#         "ec2:DescribeSnapshots",
-#         "ec2:DescribeSubnets",
-#         "ec2:DescribeTags",
-#         "ec2:DescribeVolumes",
-#         "ec2:DetachVolume",
-#         "ec2:GetPasswordData",
-#         "ec2:ModifyImageAttribute",
-#         "ec2:ModifyInstanceAttribute",
-#         "ec2:ModifySnapshotAttribute",
-#         "ec2:RegisterImage",
-#         "ec2:RunInstances",
-#         "ec2:StopInstances",
-#         "ec2:TerminateInstances"
-#       ],
-#       "Resource": "*"
-#     }
-#   ]
-# }
-# EOF
-# }
-
-//CodeDeployServiceRole, will be utilizing the codedeploy service
+# CodeDeployServiceRole for CodeDeploy service
 resource "aws_iam_role" "CodeDeployServiceRole" {
   name = "CodeDeployServiceRole"
 
@@ -538,27 +518,32 @@ resource "aws_iam_role" "CodeDeployServiceRole" {
 EOF
 }
 
-//adding policy of default policy AWSCodeDeployRole to CodeDeployServiceRole
+# Policy attachment
 resource "aws_iam_role_policy_attachment" "AWSCodeDeployRole" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
   role       = aws_iam_role.CodeDeployServiceRole.name
 }
 
-//defining the codedeploy app
+# Codedeploy app
 resource "aws_codedeploy_app" "csye6225-webapp" {
   compute_platform = "Server"
   name             = "csye6225-webapp"
 }
 
-//codedeploy group
+# Codedeploy group
 resource "aws_codedeploy_deployment_group" "csye6225-webapp-deployment" {
   app_name              = aws_codedeploy_app.csye6225-webapp.name
   deployment_group_name = "csye6225-webapp-deployment"
   service_role_arn      = aws_iam_role.CodeDeployServiceRole.arn
-  deployment_config_name = "CodeDeployDefault.AllAtOnce"
+  deployment_config_name = "CodeDeployDefault.OneAtATime"
+  autoscaling_groups = [aws_autoscaling_group.autoscaling_group_webapp.name]
+  load_balancer_info {
+    target_group_info {
+      name = aws_lb_target_group.lb-target-group.name
+    }
+  }
   
   deployment_style {
-    deployment_option = "WITHOUT_TRAFFIC_CONTROL"
     deployment_type   = "IN_PLACE"
   }
 
@@ -571,7 +556,7 @@ resource "aws_codedeploy_deployment_group" "csye6225-webapp-deployment" {
   }
 }
 
-# GH-Code-Deploy Policy
+# GH Code Deploy Policy
 resource "aws_iam_policy" "GH-Code-Deploy" {
   name        = "GH-Code-Deploy"
   description = "GH-Code-Deploy policy"
@@ -615,33 +600,75 @@ resource "aws_iam_policy" "GH-Code-Deploy" {
 EOF
 }
 
-//attachment of GH-Code-Deploy IAM Policy to ghactions_user
+# Policy attachment
 resource "aws_iam_user_policy_attachment" "ghactions_attach_ghcodedeploy_policy" {
   user       = data.aws_iam_user.ghactions_user.user_name
   policy_arn = aws_iam_policy.GH-Code-Deploy.arn
 }
 
-// Route 53 zone
+# Route 53 Hosted Zone
 data "aws_route53_zone" "fetched_zone" {
   name         = var.domain
   private_zone = false
 }
 
-# Create a record on Route53
+# Route 53 record with alias
 resource "aws_route53_record" "route53_record" {
   zone_id  = var.zone_id
   name     = var.domain
   type     = "A"
-  ttl      = 60
-  records  = [aws_instance.ec2_instance.public_ip]
+  
+  alias {
+    name                   = aws_lb.load-balancer.dns_name
+    zone_id                = aws_lb.load-balancer.zone_id
+    evaluate_target_health = true
+  }
+
 }
 
-# //adding policy of AWSCloudWatchAgentServerPolicy to CodeDeployEC2ServiceRole role
+# Policy attachment
 resource "aws_iam_role_policy_attachment" "CloudWatchAgentServerPolicy" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
   role       = aws_iam_role.CodeDeployEC2ServiceRole.name
 }
 
+
+
+
+# EC2 instance
+# resource "aws_instance" "ec2_instance" {
+#   ami = data.aws_ami.custom_ami.id
+#   instance_type = "t2.micro"
+#   key_name = var.cred["key_name"]
+#   vpc_security_group_ids = [aws_security_group.webapp_sg.id]
+#   subnet_id = aws_subnet.subnet1.id
+#   iam_instance_profile = aws_iam_instance_profile.iam_instance_profile.name
+#   associate_public_ip_address = true
+#   disable_api_termination = false
+
+#   user_data = <<-EOF
+#                 #!/bin/bash
+#                 sudo touch .env\n
+#                 sudo echo "export RDS_DB_HOSTNAME=${aws_db_instance.db_instance.address}" >> /etc/environment
+#                 sudo echo "export RDS_DB_ENDPOINT=${aws_db_instance.db_instance.endpoint}" >> /etc/environment
+#                 sudo echo "export RDS_DB_NAME=${aws_db_instance.db_instance.name}" >> /etc/environment
+#                 sudo echo "export RDS_DB_USERNAME=${var.cred["username"]}" >> /etc/environment
+#                 sudo echo "export RDS_DB_PASSWORD=${var.cred["password"]}" >> /etc/environment
+#                 sudo echo "export S3_BUCKET_NAME=${aws_s3_bucket.webapp_bucket.bucket}" >> /etc/environment
+#                 sudo echo "export SECRET_KEY=${var.secret_key}" >> /etc/environment
+#   EOF
+
+
+#   root_block_device {
+#       volume_type = "gp2"
+#       volume_size =  20
+#       delete_on_termination = true
+#   }
+
+#   tags = {
+#     Name = "ec2_instance"
+#   }
+# }
 
 # AMI Details
 data "aws_ami" "custom_ami" {
@@ -650,16 +677,16 @@ data "aws_ami" "custom_ami" {
 
 }
 
-# EC2 instance
-resource "aws_instance" "ec2_instance" {
-  ami = data.aws_ami.custom_ami.id
+# Auto-scale Launch configuration for EC2
+resource "aws_launch_configuration" "asg_launch_config" {
+  name_prefix   = "asg_launch_config"
+  image_id      = data.aws_ami.custom_ami.id
   instance_type = "t2.micro"
   key_name = var.cred["key_name"]
-  vpc_security_group_ids = [aws_security_group.webapp_sg.id]
-  subnet_id = aws_subnet.subnet1.id
-  iam_instance_profile = aws_iam_instance_profile.iam_instance_profile.name
+  security_groups = [aws_security_group.webapp_sg.id]
   associate_public_ip_address = true
-  disable_api_termination = false
+  iam_instance_profile = aws_iam_instance_profile.iam_instance_profile.name
+
 
   user_data = <<-EOF
                 #!/bin/bash
@@ -673,14 +700,132 @@ resource "aws_instance" "ec2_instance" {
                 sudo echo "export SECRET_KEY=${var.secret_key}" >> /etc/environment
   EOF
 
-
-  root_block_device {
-      volume_type = "gp2"
-      volume_size =  20
-      delete_on_termination = true
+  lifecycle {
+    create_before_destroy = true
   }
+
+}
+
+# Auto-scaling group
+resource "aws_autoscaling_group" "autoscaling_group_webapp" {
+  name                 = "autoscaling_group_webapp"
+  launch_configuration = aws_launch_configuration.asg_launch_config.name
+  min_size             = 3
+  max_size             = 5
+  desired_capacity     = 3
+  default_cooldown     = 60
+  health_check_grace_period = 1200
+  target_group_arns = [aws_lb_target_group.lb-target-group.arn]
+  vpc_zone_identifier  = [aws_subnet.subnet1.id, aws_subnet.subnet2.id,aws_subnet.subnet3.id]
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tag {
+    key                 = "Name"
+    value               = "ec2_instance"
+    propagate_at_launch = true
+  }
+}
+
+# Scale-Up Policy
+resource "aws_autoscaling_policy" "WebServerScaleUpPolicy" {
+  name                   = "WebServerScaleUpPolicy"
+  scaling_adjustment     = 1
+  adjustment_type        = "ChangeInCapacity"
+  cooldown               = 60
+  autoscaling_group_name = aws_autoscaling_group.autoscaling_group_webapp.name
+}
+
+# Scale-Down Policy
+resource "aws_autoscaling_policy" "WebServerScaleDownPolicy" {
+  name                   = "WebServerScaleDownPolicy"
+  scaling_adjustment     = -1
+  adjustment_type        = "ChangeInCapacity"
+  cooldown               = 60
+  autoscaling_group_name = aws_autoscaling_group.autoscaling_group_webapp.name
+}
+
+# Alarm for CPU High
+resource "aws_cloudwatch_metric_alarm" "CPUAlarmHigh" {
+  alarm_name          = "CPUAlarmHigh"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "1"
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = "300"
+  statistic           = "Average"
+  threshold           = "5"
+  alarm_description   = "Scale-up if CPU > 5% for 300 seconds"
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.autoscaling_group_webapp.name
+  }
+
+  alarm_actions     = [aws_autoscaling_policy.WebServerScaleUpPolicy.arn]
+}
+
+# Alarm for CPU Low
+resource "aws_cloudwatch_metric_alarm" "CPUAlarmLow" {
+  alarm_name          = "CPUAlarmLow"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = "1"
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = "300"
+  statistic           = "Average"
+  threshold           = "3"
+  alarm_description   = "Scale-down if CPU < 3% for 300 seconds"
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.autoscaling_group_webapp.name
+  }
+ 
+  alarm_actions     = [aws_autoscaling_policy.WebServerScaleDownPolicy.arn]
+}
+
+# Load Balancer
+resource "aws_lb" "load-balancer" {
+  name               = "load-balancer"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.loadbalancer_sg.id]
+  subnets            = [aws_subnet.subnet1.id, aws_subnet.subnet2.id,aws_subnet.subnet3.id]
+
+  enable_deletion_protection = false
 
   tags = {
     Name = "ec2_instance"
   }
+
+}
+
+# Load Balancer Listener
+resource "aws_lb_listener" "lb_listener" {
+  load_balancer_arn = aws_lb.load-balancer.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.lb-target-group.arn
+  }
+}
+
+resource "aws_lb_target_group" "lb-target-group" {
+  name     = "lb-target-group"
+  port     = 5000
+  protocol = "HTTP"
+
+  health_check {
+    port                = 5000
+    matcher             = 200
+    path                = "/health"
+    healthy_threshold   = 5
+    unhealthy_threshold = 3
+
+  }
+  
+  vpc_id   = aws_vpc.vpc.id
 }
