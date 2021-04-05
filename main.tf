@@ -63,6 +63,9 @@ variable "zone_id"{
     type = string
 }
 
+variable "serverless_bucket"{
+    type = string
+}
 
 # VPC
 resource "aws_vpc" "vpc" {
@@ -633,8 +636,6 @@ resource "aws_iam_role_policy_attachment" "CloudWatchAgentServerPolicy" {
 }
 
 
-
-
 # EC2 instance
 # resource "aws_instance" "ec2_instance" {
 #   ami = data.aws_ami.custom_ami.id
@@ -698,6 +699,7 @@ resource "aws_launch_configuration" "asg_launch_config" {
                 sudo echo "export RDS_DB_PASSWORD=${var.cred["password"]}" >> /etc/environment
                 sudo echo "export S3_BUCKET_NAME=${aws_s3_bucket.webapp_bucket.bucket}" >> /etc/environment
                 sudo echo "export SECRET_KEY=${var.secret_key}" >> /etc/environment
+                sudo echo "export SNS_TOPIC=${aws_sns_topic.sns_topic.arn}" >> /etc/environment
   EOF
 
   lifecycle {
@@ -828,4 +830,177 @@ resource "aws_lb_target_group" "lb-target-group" {
   }
   
   vpc_id   = aws_vpc.vpc.id
+}
+
+resource "aws_sns_topic" "sns_topic" {
+  name = "sns_topic"
+}
+
+resource "aws_iam_role_policy_attachment" "SNSPolicy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSNSFullAccess"
+  role       = aws_iam_role.CodeDeployEC2ServiceRole.name
+}
+
+resource "aws_iam_role" "iam_lambda" {
+  name = "iam_lambda"
+
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": "sts:AssumeRole",
+      "Principal": {
+        "Service": "lambda.amazonaws.com"
+      },
+      "Effect": "Allow",
+      "Sid": ""
+    }
+  ]
+}
+EOF
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_iam_attachment" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  role       = aws_iam_role.iam_lambda.name
+}
+
+
+resource "aws_lambda_function" "assignment_lambda" {
+  filename      = "csye6225-lambda.zip"
+  function_name = "csye6225"
+  role          = aws_iam_role.iam_lambda.arn
+  handler       = "index.handler"
+  memory_size   = 256
+  timeout       = 180
+
+
+
+  runtime = "nodejs12.x"
+
+  environment {
+    variables = {
+      Name = "Lambda Function"
+    }
+  }
+}
+
+resource "aws_s3_bucket" "lambdabucket" {
+  bucket = var.serverless_bucket
+  acl    = "private"
+  force_destroy = true
+
+
+  server_side_encryption_configuration {    
+    rule {     
+       apply_server_side_encryption_by_default { sse_algorithm = "AES256"}
+       }
+  }
+
+  lifecycle_rule {
+    id      = "log"
+    enabled = true
+    transition {
+      days          = 30
+      storage_class = "STANDARD_IA" # or "ONEZONE_IA"
+    }
+  }
+
+  tags = {
+    Name = "lambdabucket"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "serverlessBucketRemovePublicAccess" {
+bucket = aws_s3_bucket.lambdabucket.id
+block_public_acls = true
+block_public_policy = true
+restrict_public_buckets = true
+ignore_public_acls = true
+}
+
+//adding lambda full access to gh actions user
+resource "aws_iam_user_policy_attachment" "ghactions_attach_gh_serverless_upload_to_s3_policy" {
+  user       = data.aws_iam_user.ghactions_user.user_name
+  policy_arn = "arn:aws:iam::aws:policy/AWSLambda_FullAccess"
+}
+
+resource "aws_sns_topic_subscription" "user_updates_sns_target" {
+  topic_arn = aws_sns_topic.sns_topic.arn
+  protocol  = "lambda"
+  endpoint  = "${aws_lambda_function.assignment_lambda.arn}"
+}
+
+resource "aws_lambda_permission" "lambda_sns_permission" {
+  statement_id  = "AllowExecutionFromSNS"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.assignment_lambda.function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = aws_sns_topic.sns_topic.arn
+}
+
+resource "aws_iam_policy" "lambdapolicy" {
+  name        = "lambdapolicy"
+  path        = "/"
+  description = "lambdapolicy"
+  policy = <<EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ses:SendEmail",
+                "ses:SendRawEmail"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+EOF
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_execution_policy_attachment" {
+  policy_arn = aws_iam_policy.lambdapolicy.arn
+  role       = aws_iam_role.iam_lambda.name
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_ses_policy_attachment" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSESFullAccess"
+  role       = aws_iam_role.iam_lambda.name
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_dynamodb_policy_attachment" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
+  role       = aws_iam_role.iam_lambda.name
+}
+
+resource "aws_db_parameter_group" "db-param-group-performance-schema" {
+  name   = "db-param-group-performance-schema"
+  family = "mysql8.0"
+
+  parameter {
+    name         = "performance_schema"
+    value        = "1"
+    apply_method = "pending-reboot"
+  }
+
+}
+
+resource "aws_dynamodb_table" "dynamodb" {
+  name           = "csye6225"
+  billing_mode   = "PROVISIONED"
+  read_capacity  = 5
+  write_capacity = 5
+  hash_key       = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  tags = {
+    Name = "dynamodb"
+  }
 }
