@@ -152,31 +152,11 @@ resource "aws_security_group" "webapp_sg" {
   vpc_id = aws_vpc.vpc.id
   
   ingress {
-    from_port = 443
-    to_port = 443
-    protocol = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port = 80
-    to_port = 80
-    protocol = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port = 8080
-    to_port = 8080
-    protocol = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
+    description = "Allow Load Balancer Access"
     from_port = 5000
     to_port = 5000
     protocol = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    security_groups = [aws_security_group.loadbalancer_sg.id]
   }
 
   ingress {
@@ -186,17 +166,45 @@ resource "aws_security_group" "webapp_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  ingress {
-    from_port = 3128
-    to_port = 3128
-    protocol = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # ingress {
+  #   from_port = 80
+  #   to_port = 80
+  #   protocol = "tcp"
+  #   cidr_blocks = ["0.0.0.0/0"]
+  # }
+
+  # ingress {
+  #   from_port = 8080
+  #   to_port = 8080
+  #   protocol = "tcp"
+  #   cidr_blocks = ["0.0.0.0/0"]
+  # }
+
+  # ingress {
+  #   from_port = 22
+  #   to_port = 22
+  #   protocol = "tcp"
+  #   cidr_blocks = ["0.0.0.0/0"]
+  # }
+
+  # ingress {
+  #   from_port = 5000
+  #   to_port = 5000
+  #   protocol = "tcp"
+  #   cidr_blocks = ["0.0.0.0/0"]
+  # }
+
+  ingress {
+    from_port = 3128
+    to_port = 3128
+    protocol = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -492,7 +500,9 @@ resource "aws_iam_policy" "GH-Upload-To-S3" {
             ],
             "Resource": [
               "arn:aws:s3:::${var.codedeploy_bucket}",
-              "arn:aws:s3:::${var.codedeploy_bucket}/*"
+              "arn:aws:s3:::${var.codedeploy_bucket}/*",
+              "arn:aws:s3:::${var.serverless_bucket}",
+              "arn:aws:s3:::${var.serverless_bucket}/*"
             ]
         }
     ]
@@ -756,10 +766,10 @@ resource "aws_cloudwatch_metric_alarm" "CPUAlarmHigh" {
   evaluation_periods  = "1"
   metric_name         = "CPUUtilization"
   namespace           = "AWS/EC2"
-  period              = "300"
+  period              = "60"
   statistic           = "Average"
-  threshold           = "5"
-  alarm_description   = "Scale-up if CPU > 5% for 300 seconds"
+  threshold           = "10"
+  alarm_description   = "Scale-up if CPU > 10% for 60 seconds"
 
   dimensions = {
     AutoScalingGroupName = aws_autoscaling_group.autoscaling_group_webapp.name
@@ -775,10 +785,10 @@ resource "aws_cloudwatch_metric_alarm" "CPUAlarmLow" {
   evaluation_periods  = "1"
   metric_name         = "CPUUtilization"
   namespace           = "AWS/EC2"
-  period              = "300"
+  period              = "60"
   statistic           = "Average"
-  threshold           = "3"
-  alarm_description   = "Scale-down if CPU < 3% for 300 seconds"
+  threshold           = "5"
+  alarm_description   = "Scale-down if CPU < 5% for 60 seconds"
 
   dimensions = {
     AutoScalingGroupName = aws_autoscaling_group.autoscaling_group_webapp.name
@@ -867,24 +877,21 @@ resource "aws_iam_role_policy_attachment" "lambda_iam_attachment" {
 }
 
 
-resource "aws_lambda_function" "assignment_lambda" {
-  filename      = "csye6225-lambda.zip"
-  function_name = "csye6225"
+resource "aws_lambda_function" "lambda_fn" {
+  filename      = "lambda_function.zip"
+  function_name = "serverless"
   role          = aws_iam_role.iam_lambda.arn
-  handler       = "index.handler"
-  memory_size   = 256
-  timeout       = 180
-
-
-
-  runtime = "nodejs12.x"
+  handler       = "lambda_function.lambda_handler"
+  timeout       = 5
+  runtime = "python3.8"
 
   environment {
     variables = {
-      Name = "Lambda Function"
+      DYNANODB_TABLE = aws_dynamodb_table.dynamodb_instance.id
     }
   }
 }
+
 
 resource "aws_s3_bucket" "lambdabucket" {
   bucket = var.serverless_bucket
@@ -913,14 +920,14 @@ resource "aws_s3_bucket" "lambdabucket" {
 }
 
 resource "aws_s3_bucket_public_access_block" "serverlessBucketRemovePublicAccess" {
-bucket = aws_s3_bucket.lambdabucket.id
-block_public_acls = true
-block_public_policy = true
-restrict_public_buckets = true
-ignore_public_acls = true
+  bucket = aws_s3_bucket.lambdabucket.id
+  block_public_acls = true
+  block_public_policy = true
+  restrict_public_buckets = true
+  ignore_public_acls = true
 }
 
-//adding lambda full access to gh actions user
+# Policy attachment
 resource "aws_iam_user_policy_attachment" "ghactions_attach_gh_serverless_upload_to_s3_policy" {
   user       = data.aws_iam_user.ghactions_user.user_name
   policy_arn = "arn:aws:iam::aws:policy/AWSLambda_FullAccess"
@@ -929,16 +936,43 @@ resource "aws_iam_user_policy_attachment" "ghactions_attach_gh_serverless_upload
 resource "aws_sns_topic_subscription" "user_updates_sns_target" {
   topic_arn = aws_sns_topic.sns_topic.arn
   protocol  = "lambda"
-  endpoint  = "${aws_lambda_function.assignment_lambda.arn}"
+  endpoint  = aws_lambda_function.lambda_fn.arn
 }
 
 resource "aws_lambda_permission" "lambda_sns_permission" {
   statement_id  = "AllowExecutionFromSNS"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.assignment_lambda.function_name
+  function_name = aws_lambda_function.lambda_fn.function_name
   principal     = "sns.amazonaws.com"
   source_arn    = aws_sns_topic.sns_topic.arn
 }
+
+resource "aws_iam_policy" "update_lambda_policy" {
+  name        = "update_lambda_policy"
+  description = "Github actions policy to update lambda function code"
+  policy      = <<EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "lambda:UpdateFunctionCode"
+            ],
+            "Resource": [
+                "${aws_lambda_function.lambda_fn.arn}"
+            ]
+        }
+    ]
+}
+EOF
+}
+
+resource "aws_iam_user_policy_attachment" "serverless_attachment" {
+  user       = data.aws_iam_user.ghactions_user.user_name
+  policy_arn = aws_iam_policy.update_lambda_policy.arn
+}
+
 
 resource "aws_iam_policy" "lambdapolicy" {
   name        = "lambdapolicy"
@@ -951,10 +985,28 @@ resource "aws_iam_policy" "lambdapolicy" {
         {
             "Effect": "Allow",
             "Action": [
-                "ses:SendEmail",
-                "ses:SendRawEmail"
-            ],
-            "Resource": "*"
+                      "dynamodb:BatchGetItem",
+                      "dynamodb:GetItem",
+                      "dynamodb:Query",
+                      "dynamodb:Scan",
+                      "dynamodb:BatchWriteItem",
+                      "dynamodb:PutItem",
+                      "dynamodb:UpdateItem"
+			      ],
+			      "Resource": "${aws_dynamodb_table.dynamodb_instance.arn}"
+        },
+        {
+          "Effect": "Allow",
+          "Action": [
+            "logs:CreateLogStream",
+            "logs:PutLogEvents"
+          ],
+          "Resource": "arn:aws:logs:${var.region}:${var.account_id}:*"
+        },
+        {
+          "Effect": "Allow",
+          "Action": "logs:CreateLogGroup",
+          "Resource": "*"
         }
     ]
 }
@@ -976,20 +1028,8 @@ resource "aws_iam_role_policy_attachment" "lambda_dynamodb_policy_attachment" {
   role       = aws_iam_role.iam_lambda.name
 }
 
-resource "aws_db_parameter_group" "db-param-group-performance-schema" {
-  name   = "db-param-group-performance-schema"
-  family = "mysql8.0"
-
-  parameter {
-    name         = "performance_schema"
-    value        = "1"
-    apply_method = "pending-reboot"
-  }
-
-}
-
-resource "aws_dynamodb_table" "dynamodb" {
-  name           = "csye6225"
+resource "aws_dynamodb_table" "dynamodb_instance" {
+  name           = "dynamodb_instance"
   billing_mode   = "PROVISIONED"
   read_capacity  = 5
   write_capacity = 5
@@ -1001,6 +1041,12 @@ resource "aws_dynamodb_table" "dynamodb" {
   }
 
   tags = {
-    Name = "dynamodb"
+    Name = "dynamodb_instance"
   }
+}
+
+data "archive_file" "lambda_zip" {
+  type        = "zip"
+  source_file = "lambda_function.py"
+  output_path = "lambda_function.zip"
 }
