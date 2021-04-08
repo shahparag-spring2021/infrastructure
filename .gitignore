@@ -1,5 +1,6 @@
 # Local .terraform directories
 **/.terraform/*
+lambda_function.py
 
 # .tfstate files
 *.tfstate
