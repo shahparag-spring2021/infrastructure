@@ -340,7 +340,8 @@ resource "aws_db_instance" "db_instance" {
   db_subnet_group_name = aws_db_subnet_group.db_subnet_group.name
   storage_encrypted = true
   ca_cert_identifier = data.aws_rds_certificate.rds_certificate.id
-#   parameter_group_name = aws_db_parameter_group.db-param-group-performance-schema.name
+  kms_key_id = aws_kms_key.kms_key_rds.arn
+  parameter_group_name = aws_db_parameter_group.param-group-ssl.name
   tags = {
     Name = "db_instance_${terraform.workspace}"
   }
@@ -348,6 +349,18 @@ resource "aws_db_instance" "db_instance" {
 
 data "aws_rds_certificate" "rds_certificate" {
   latest_valid_till = true
+}
+
+resource "aws_db_parameter_group" "param-group-ssl" {
+  name   = "param-group-ssl"
+  family = "postgres13"
+
+  parameter {
+    name         = "rds.force_ssl"
+    value        = "1"
+    apply_method = "immediate"
+  }
+
 }
 
 
@@ -506,6 +519,108 @@ resource "aws_iam_policy" "GH-Upload-To-S3" {
             ]
         }
     ]
+}
+EOF
+}
+
+# Policy attachment
+resource "aws_iam_user_policy_attachment" "ghactions_attach_kms_access_policy" {
+  user       = data.aws_iam_user.ghactions_user.user_name
+  policy_arn = aws_iam_policy.KMS-Access-IAM.arn
+}
+
+# Initial KMS Access IAM Policy
+# {
+#     "Version": "2012-10-17",
+#     "Statement": [
+#         {
+#             "Sid": "VisualEditor0",
+#             "Effect": "Allow",
+#             "Action": [
+#                 "kms:Decrypt",
+#                 "kms:Encrypt",
+#                 "kms:RevokeGrant",
+#                 "kms:GenerateDataKey",
+#                 "kms:GenerateDataKeyWithoutPlaintext",
+#                 "kms:DescribeKey",
+#                 "kms:CreateGrant",
+#                 "kms:ListGrants"
+#             ],
+#             "Resource": "${aws_kms_key.kms_key_ebs.arn}"
+#         }
+#     ]
+# }
+
+# KMS-Access-IAM IAM Policy
+resource "aws_iam_policy" "KMS-Access-IAM" {
+  name        = "KMS-Access-IAM"
+  path        = "/"
+  description = "KMS-Access-IAM policy"
+  policy = <<EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+    {
+        "Sid": "Aa1",
+        "Effect": "Allow",
+        "Action": "kms:*",
+        "Resource": "*"
+    },
+    {
+        "Sid": "Aa2",
+        "Effect": "Allow",
+        "Action": [
+                  "kms:Create*",
+                  "kms:Describe*",
+                  "kms:Enable*",
+                  "kms:List*",
+                  "kms:Put*",
+                  "kms:Update*",
+                  "kms:Revoke*",
+                  "kms:Disable*",
+                  "kms:Get*",
+                  "kms:Delete*",
+                  "kms:TagResource",
+                  "kms:UntagResource",
+                  "kms:ScheduleKeyDeletion",
+                  "kms:CancelKeyDeletion"
+        ],
+        "Resource": "*"
+    },
+    {
+        "Sid": "Aa3",
+        "Effect": "Allow",
+        "Action": [
+            "kms:Encrypt",
+            "kms:Decrypt",
+            "kms:ReEncrypt*",
+            "kms:GenerateDataKey*",
+            "kms:DescribeKey"
+        ],
+        "Resource": "*"
+    },
+    {
+        "Sid": "Aa4",
+        "Effect": "Allow",
+        "Action": [
+            "kms:CreateGrant",
+            "kms:ListGrants",
+            "kms:RevokeGrant"
+        ],
+        "Resource": "*",
+        "Condition": {
+        "Bool": {
+        "kms:GrantIsForAWSResource": "true"
+                }
+                      }
+    },
+    {
+        "Sid": "Aa5",
+        "Effect": "Allow",
+        "Action": "kms:*",
+        "Resource": "*"
+    }
+  ]
 }
 EOF
 }
@@ -689,15 +804,14 @@ data "aws_ami" "custom_ami" {
 }
 
 # Auto-scale Launch configuration for EC2
-resource "aws_launch_configuration" "asg_launch_config" {
-  name_prefix   = "asg_launch_config"
+resource "aws_launch_configuration" "asg_launch_config_prod" {
+  name_prefix   = "asg_launch_config_prod"
   image_id      = data.aws_ami.custom_ami.id
   instance_type = "t2.micro"
   key_name = var.cred["key_name"]
   security_groups = [aws_security_group.webapp_sg.id]
   associate_public_ip_address = true
   iam_instance_profile = aws_iam_instance_profile.iam_instance_profile.name
-
 
   user_data = <<-EOF
                 #!/bin/bash
@@ -712,6 +826,13 @@ resource "aws_launch_configuration" "asg_launch_config" {
                 sudo echo "export SNS_TOPIC=${aws_sns_topic.sns_topic.arn}" >> /etc/environment
   EOF
 
+  root_block_device {
+    volume_type = "gp2"
+    volume_size = 20
+    delete_on_termination = true
+    encrypted = true
+  }
+
   lifecycle {
     create_before_destroy = true
   }
@@ -721,7 +842,7 @@ resource "aws_launch_configuration" "asg_launch_config" {
 # Auto-scaling group
 resource "aws_autoscaling_group" "autoscaling_group_webapp" {
   name                 = "autoscaling_group_webapp"
-  launch_configuration = aws_launch_configuration.asg_launch_config.name
+  launch_configuration = aws_launch_configuration.asg_launch_config_prod.name
   min_size             = 3
   max_size             = 5
   desired_capacity     = 3
@@ -813,11 +934,18 @@ resource "aws_lb" "load-balancer" {
 
 }
 
+# SSL Certificate
+data "aws_acm_certificate" "prod_ssl_cert" {
+  domain   = "prod.paragshah.me"
+  statuses = ["ISSUED"]
+}
+
 # Load Balancer Listener
 resource "aws_lb_listener" "lb_listener" {
   load_balancer_arn = aws_lb.load-balancer.arn
-  port              = "80"
-  protocol          = "HTTP"
+  port              = "443"
+  protocol          = "HTTPS"
+  certificate_arn   = data.aws_acm_certificate.prod_ssl_cert.arn
 
   default_action {
     type             = "forward"
@@ -1049,4 +1177,59 @@ data "archive_file" "lambda_zip" {
   type        = "zip"
   source_file = "lambda_function.py"
   output_path = "lambda_function.zip"
+}
+
+# resource "aws_kms_key" "kms_key_ebs" {
+#   description             = "KMS key to encrypt EBS volumes"
+#   deletion_window_in_days = 10
+#   tags = {
+#     Alias = "kms_key_ebs"
+#   }
+# }
+
+resource "aws_kms_key" "kms_key_ebs" {
+    description = "Key to encrypt EBS volumes"
+    key_usage = "ENCRYPT_DECRYPT"
+    customer_master_key_spec = "SYMMETRIC_DEFAULT"
+    deletion_window_in_days = 7
+    tags = {
+    Name = "kms_key_ebs"
+    }
+    policy      = <<EOF
+{
+"Version": "2012-10-17",
+"Statement": [
+{
+"Sid": "Enable IAM User Permissions",
+"Effect": "Allow",
+"Principal": {
+"AWS": "arn:aws:iam::578033826244:root"
+},
+"Action": "kms:*",
+"Resource": "*"
+},
+{
+"Sid": "Add service role",
+"Effect": "Allow",
+"Principal": {
+"AWS": "arn:aws:iam::578033826244:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+},
+"Action": "kms:*",
+"Resource": "*"
+}
+]
+}
+EOF
+}
+
+resource "aws_ebs_default_kms_key" "kms_key_ebs" {
+    key_arn = aws_kms_key.kms_key_ebs.arn
+}
+
+resource "aws_kms_key" "kms_key_rds" {
+  description             = "KMS key to encrypt EBS volumes"
+  deletion_window_in_days = 10
+  tags = {
+    Alias = "kms_key_rds"
+  }
 }
